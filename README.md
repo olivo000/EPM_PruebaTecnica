@@ -1,6 +1,6 @@
-# Predicción de Spreads en el Mercado Eléctrico
+# Optimización de Asignación Horaria en Mercados Eléctricos
 
-Este proyecto realiza el preprocesamiento, entrenamiento de modelos y evaluación de estrategias para predecir el spread de precios entre los mercados DAM y RTM en el sector eléctrico mexicano.
+Este proyecto realiza el preprocesamiento, entrenamiento de modelos y evaluación de estrategias para predecir el spread de precios entre los mercados DAM y RTM en el sector eléctrico.
 
 ## Estructura del Proyecto
 
