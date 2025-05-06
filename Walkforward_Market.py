@@ -1,11 +1,11 @@
-# ────────────────── walkforward_prediccionN4.py ──────────────────
+
 import os, pandas as pd, numpy as np, joblib, matplotlib.pyplot as plt
 from datetime import timedelta
 from xgboost import XGBRegressor
 from utils_features import make_features
 import time
 from collections import defaultdict
-# ─── Configuración ──────────────────────────────────────────────
+
 LOOKBACK_MONTHS     = 6
 D_LAG               = 2
 RANDOM_STATE        = 42
@@ -19,14 +19,14 @@ MIN_EXPECTED_PROFIT = 100
 CSV_PATH = "dataset_clean.csv"
 os.makedirs("logs", exist_ok=True)
 
-# ─── Parámetros de la política de asignación ───────────────────
-CAPITAL_TOTAL_DIA   = 50_000          # ⬅️ techo global
-MIN_NODOS_DIA       = 5               # ⬅️ mínimo requerido
-TOP_N_SPREADS       = 10              # sigue en uso
-CAPITAL_POR_NODO    = CAPITAL_TOTAL_DIA // TOP_N_SPREADS  # 5 000
 
-# contenedor para el dataset horario
-asignaciones_all = []                 # se apila día a día
+CAPITAL_TOTAL_DIA   = 50_000          
+MIN_NODOS_DIA       = 5              
+TOP_N_SPREADS       = 10            
+CAPITAL_POR_NODO    = CAPITAL_TOTAL_DIA // TOP_N_SPREADS  
+
+
+asignaciones_all = []                 
 
 # ─── Carga base ─────────────────────────────────────────────────
 df_all = pd.read_csv(CSV_PATH)
@@ -48,7 +48,7 @@ df_all["DateTime_hr"] = df_all["DateTime"].dt.normalize() + pd.to_timedelta(df_a
 
 pivot_all = df_all.pivot_table(index="DateTime_hr", columns=["NodeType", "Hour"], values="spread").sort_index()
 
-# ─── Cargar modelos ─────────────────────────────────────────────
+
 modelos_info = []
 for carpeta in os.listdir("modelos_guardados"):
     if "_h" not in carpeta:
@@ -71,7 +71,7 @@ for carpeta in os.listdir("modelos_guardados"):
         "dates": [], "preds": [], "actuals": []
     })
 
-# ─── Rango de fechas para backtest ─────────────────────────────
+
 test_start = max(
     m["raw"]["DateTime"].min().normalize() + pd.DateOffset(months=LOOKBACK_MONTHS)
     for m in modelos_info
@@ -84,7 +84,7 @@ print(f"Back-test desde {test_start.date()} hasta {test_end.date()}")
 
 resultados_diarios = []
 nodos_por_dia = {}
-# ─── Bucle de días ──────────────────────────────────────────────
+
 asignaciones_all = []
 
 while current_day <= test_end:
@@ -245,10 +245,10 @@ while current_day <= test_end:
         nodos_hora_utilizados.add((d["asset_id"], d["hour"]))
 
     if len(nodos_utilizados) < MIN_NODOS_DIA:
-        print(f"⚠️ Día {current_day.date()}: solo se asignaron {len(nodos_utilizados)} nodos únicos.")
+        print(f" Día {current_day.date()}: solo se asignaron {len(nodos_utilizados)} nodos únicos.")
 
     if len(nodos_utilizados) < MIN_NODOS_DIA:
-        print(f"⚙️ Día {current_day.date()}: forzando inclusión de más nodos para cumplir mínimo de {MIN_NODOS_DIA}")
+        print(f" Día {current_day.date()}: forzando inclusión de más nodos para cumplir mínimo de {MIN_NODOS_DIA}")
         candidatos_extra = [
             d for d in dia_preds
             if (d["asset_id"], d["hour"]) not in nodos_hora_utilizados
@@ -276,7 +276,7 @@ while current_day <= test_end:
             capital_usado += costo_tx
             nodos_utilizados.add(d["asset_id"])
             nodos_hora_utilizados.add((d["asset_id"], d["hour"]))
-            print(f"✅ Nodo forzado: {d['asset_id']} h{d['hour']} ({d['tipo']})")
+            print(f" Nodo forzado: {d['asset_id']} h{d['hour']} ({d['tipo']})")
 
             if len(nodos_utilizados) >= MIN_NODOS_DIA:
                 break
@@ -319,21 +319,21 @@ df_retornos = pd.DataFrame(resultados_diarios)
 df_retornos["retorno_acumulado"] = df_retornos["retorno_total"].cumsum()
 df_retornos["RoI"] = df_retornos["retorno_total"] / (CAPITAL_POR_NODO * TOP_N_SPREADS)
 
-# Métrica 1: Total RoI
-total_roi = df_retornos["retorno_total"].sum() / (CAPITAL_POR_NODO * len(df_retornos))
-print(f"\n📈 RoI total: {total_roi:.4f}")
 
-# Métrica 2: Máximo Drawdown
+total_roi = df_retornos["retorno_total"].sum() / (CAPITAL_POR_NODO * len(df_retornos))
+print(f"\n RoI total: {total_roi:.4f}")
+
+
 df_retornos["peak"] = df_retornos["retorno_acumulado"].cummax()
 df_retornos["drawdown"] = df_retornos["retorno_acumulado"] - df_retornos["peak"]
 max_drawdown = df_retornos["drawdown"].min()
-print(f"📉 Máximo Drawdown: {max_drawdown:.2f}")
+print(f" Máximo Drawdown: {max_drawdown:.2f}")
 
-# Métrica 3: Sharpe Ratio Aproximado
+
 sharpe_ratio = df_retornos["RoI"].mean() / df_retornos["RoI"].std()
-print(f"📊 Sharpe Ratio (aprox.): {sharpe_ratio:.2f}")
+print(f"Sharpe Ratio (aprox.): {sharpe_ratio:.2f}")
 
-# Guardar CSV y gráfico
+
 df_retornos.to_csv("logs/retornos_diarios.csv", index=False)
 
 plt.figure(figsize=(10, 4))
@@ -345,12 +345,12 @@ plt.tight_layout()
 plt.savefig("logs/retorno_acumulado.png")
 plt.close()
 
-# ─── Guardar ─────────────────────────────
+
 df_retornos = pd.DataFrame(resultados_diarios)
 df_retornos["retorno_acumulado"] = df_retornos["retorno_total"].cumsum()
 df_retornos.to_csv("logs/retornos_diarios.csv", index=False)
 
-# ─── Ranking de nodos más utilizados ────────────────────────────────
+
 ranking = []
 
 for fecha, nodos in nodos_por_dia.items():
@@ -381,11 +381,11 @@ df_nodos = (
 
 df_nodos.to_csv("logs/ranking_nodos.csv", index=False)
 
-print("\n🏆 Top 10 nodos más rentables:")
+print("\n Top 10 nodos más rentables:")
 print(df_nodos.head(10).to_string(index=False))
 
 
-# Guardar predicciones por modelo
+
 for model in modelos_info:
     df_preds = pd.DataFrame({
         "Date": model["dates"],
@@ -395,10 +395,10 @@ for model in modelos_info:
     name = f"{model['asset_id']}_h{model['hour']}_{model['tx_type']}"
     df_preds.to_csv(f"logs/predicciones_{name}.csv", index=False)
 
-# ─── Guardar dataset horario de asignaciones ─────────────────────
+
 df_asig = pd.DataFrame(asignaciones_all)
 df_asig.to_csv("logs/asignaciones_horarias.csv", index=False)
-print(f"📝 Dataset horario de asignaciones guardado: {len(df_asig)} filas")
+print(f" Dataset horario de asignaciones guardado: {len(df_asig)} filas")
 
 
-print("\n✅ Walkforward finalizado. Archivos guardados en carpeta 'logs'.")
+print("\n Walkforward finalizado. Archivos guardados en carpeta 'logs'.")

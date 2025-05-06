@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-# ──────────────────────────  CONST  ───────────────────────────────────────────
+
 PRICE_MIN, PRICE_MAX = -250, 500
 
 PRICE_COLS           = ["BidPrice", "OfferPrice", "DAMSPP", "RTMSPP"]
@@ -13,12 +13,12 @@ MEASURE_COLS         = ["Price", "MW", "DAMSPP", "RTMSPP"]
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
-SPREAD_THRESHOLD = 500  # Puedes ajustar esto si hace falta
+SPREAD_THRESHOLD = 500  
 
-# ──────────────────────────  CONTADORES  ──────────────────────────────────────
+
 missing_dates_counts = defaultdict(int)
 
-# ──────────────────────────  UTILIDADES  ──────────────────────────────────────
+
 def load_data(csv_path: str) -> pd.DataFrame:
     return pd.read_csv(csv_path, dtype=str)
 
@@ -53,11 +53,11 @@ def diagnose_irrelevant_columns(df):
         if count > 0:
             problems.append((col, "OFFER", count))
     if problems:
-        print("\n🚨 Diagnóstico de columnas no esperadas por tipo de transacción:")
+        print("\n Diagnóstico de columnas no esperadas por tipo de transacción:")
         for col, tx_type, count in problems:
-            print(f"⚠️  {count} valores encontrados en '{col}' para transacciones tipo {tx_type}")
+            print(f"  {count} valores encontrados en '{col}' para transacciones tipo {tx_type}")
     else:
-        print("\n✅ No se encontraron columnas con valores no esperados según el tipo de transacción.")
+        print("\n No se encontraron columnas con valores no esperados según el tipo de transacción.")
 
 def fix_bid_offer_columns(df: pd.DataFrame) -> None:
     is_bid   = df["TransactionType"] == "BID"
@@ -85,7 +85,7 @@ def mark_extreme_spreads(df: pd.DataFrame) -> None:
     is_bid   = df["TransactionType"] == "BID"
     is_offer = df["TransactionType"] == "OFFER"
 
-    # 1️⃣  Calcula el spread
+
     spread = pd.Series(index=df.index, dtype=float)
     spread[is_bid]   = pd.to_numeric(df.loc[is_bid,   "RTMSPP"], errors="coerce") \
                      - pd.to_numeric(df.loc[is_bid,   "DAMSPP"], errors="coerce")
@@ -94,19 +94,19 @@ def mark_extreme_spreads(df: pd.DataFrame) -> None:
 
     df["spread"] = spread
 
-    # 2️⃣  Bandera de valores extremos
+
     df["ExtremeSpreadFlag"] = df["spread"].abs() > SPREAD_THRESHOLD
     df["ExtremeSpreadFlag"] = df["ExtremeSpreadFlag"].fillna(False).astype(bool)
 
-    # 3️⃣  Anula precios y spread en filas extremas
+
     df.loc[df["ExtremeSpreadFlag"], ["DAMSPP", "RTMSPP"]] = 0
     df.loc[df["ExtremeSpreadFlag"],  "spread"]            = 0.0
 
-    # 4️⃣  Conversión numérica segura
+
     for col in ["DAMSPP", "RTMSPP", "MW"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # 5️⃣  Rellenar filas añadidas vacías con valores suaves
+
     
     mask_fill = pd.Series([False] * len(df), index=df.index)
     
@@ -115,26 +115,22 @@ def mark_extreme_spreads(df: pd.DataFrame) -> None:
         df.loc[mask_fill, "DAMSPP"] = 20.0
         df.loc[mask_fill, "RTMSPP"] = 20.001
 
-        # Si quieres usar un spread aún menor (como 0.0001), puedes ajustarlo aquí
-        # df.loc[mask_fill, "DAMSPP"] = 20.0
-        # df.loc[mask_fill, "RTMSPP"] = 20.0001
 
-    # 6️⃣  Recalcular spread después del relleno
     df["spread"] = np.where(
         df["TransactionType"] == "BID",
         df["RTMSPP"] - df["DAMSPP"],
         df["DAMSPP"] - df["RTMSPP"]
     )
 
-    # 7️⃣  Recalcular ReturnUSD
+
     df["ReturnUSD"] = (df["RTMSPP"] - df["DAMSPP"]) * df["MW"].fillna(0)
 
     print(
-        f"⚠️  Se marcaron {df['ExtremeSpreadFlag'].sum()} filas con spread "
+        f"  Se marcaron {df['ExtremeSpreadFlag'].sum()} filas con spread "
         f"extremo (> {SPREAD_THRESHOLD})"
     )
     print(
-        f"✅ Se rellenaron {mask_fill.sum()} filas añadidas con RTMSPP ≈ DAMSPP + ε"
+        f" Se rellenaron {mask_fill.sum()} filas añadidas con RTMSPP ≈ DAMSPP + ε"
     )
 
 
@@ -272,12 +268,8 @@ def generate_completeness_report(df: pd.DataFrame, P=30):
     report_path = LOG_DIR / f"completeness_report_{now}.csv"
     report.to_csv(report_path, index=False)
 
-    print("\n📊 Reporte de Completitud Generado:")
-    # print(
-        # report.loc[report["RowsAdded"] > 0]
-        # .sort_values(["AssetID", "Hour"])
-        # .to_string(index=False)
-    # )
+    print("\n Reporte de Completitud Generado:")
+
 
 def export_added_dates(df: pd.DataFrame):
     added = df.loc[df["RowAdded"], ["AssetID", "Hour", "Date", "RowAddedAndFilled"]]
@@ -312,7 +304,7 @@ def export_integrity_ranking(df: pd.DataFrame):
     path = LOG_DIR / f"integrity_ranking_{now}.csv"
     grouped.to_csv(path, index=False)
 
-    print(f"\n📊 Tabla de integridad exportada como: {path.name}")
+    print(f"\nTabla de integridad exportada como: {path.name}")
     print(grouped[["AssetID", "Hour", "TotalDays", "DaysAdded", "InvalidDays", "FullIntegrityScore"]].head(10).to_string(index=False))
 
 
@@ -340,7 +332,7 @@ def main():
     df["RowAddedAndFilled"] = df["RowAdded"] & df[MEASURE_COLS].notna().any(axis=1)
 
     recompute_returnusd(df)
-    df["MW"] = df["MW"].round().astype("Int64")  # conserva NaNs y fuerza enteros
+    df["MW"] = df["MW"].round().astype("Int64")  
     mark_invalid_rows(df)
     check_missing_summary(df)
 
@@ -354,10 +346,10 @@ def main():
 
 
     print(
-        f"\n📅  Días añadidos totales: {df['RowAdded'].sum()} "
+        f"\n  Días añadidos totales: {df['RowAdded'].sum()} "
         f"(rellenados: {df['RowAddedAndFilled'].sum()})"
     )
-    print("\n🧪 Primeras filas con columnas clave:")
+    print("\nPrimeras filas con columnas clave:")
     print(df[["DateTime", "AssetID", "Hour", "TransactionType", "spread", "ExtremeSpreadFlag", "RowAdded", "RowAddedAndFilled"]].head(10))
 
     print(df["spread"].describe())

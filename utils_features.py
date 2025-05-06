@@ -51,14 +51,14 @@ def make_features(df_hist, pivot_hist, external_features,
     df.sort_values("DateTime_hr", inplace=True)
     df.set_index("DateTime_hr", inplace=True)
 
-    #print("\n🧠 [make_features] Inicializando generación de features...")
+
 
     for lag, node, h in external_features:
         col = f"spread_lag{lag}_{node}_h{h}"
         if (node, h) in pivot_hist.columns:
             df[col] = pivot_hist[(node, h)].shift(lag).reindex(df.index)
         else:
-            print(f"⚠️  Nodo {node} h{h} no encontrado en pivot → columna {col} será NaN")
+            print(f"  Nodo {node} h{h} no encontrado en pivot → columna {col} será NaN")
 
     df["spread_std_3"] = df["spread"].rolling(3).std().shift(2)
     df["spread_std_7"] = df["spread"].rolling(7).std().shift(2)
@@ -68,22 +68,21 @@ def make_features(df_hist, pivot_hist, external_features,
 
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    #print("\n🔍 [make_features] Columnas con NaNs después de cálculos:")
+
     nan_cols = df.columns[df.isna().any()]
     for col in nan_cols:
         count = df[col].isna().sum()
-        #print(f"  → {col}: {count} NaNs ({count / len(df):.2%})")
+
 
     nan_rows = df[df.isna().any(axis=1)].copy()
     if not nan_rows.empty:
         debug_rows_path = "debug_nan_rows.csv"
         nan_rows.to_csv(debug_rows_path)
-        #print(f"\n⚠️ Filas con NaNs exportadas a: {debug_rows_path}")
+
 
     if valid_mask is None:
         valid_mask = df.notna().mean() >= na_tol
-        #print("\n✅ Columnas válidas según NA_TOL:")
-        #print(valid_mask[valid_mask].index.tolist())
+
 
     df = df.loc[:, valid_mask].select_dtypes("number")
     df.reset_index(inplace=True)
