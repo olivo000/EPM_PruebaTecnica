@@ -1,6 +1,15 @@
-# Optimización de Asignación Horaria en Mercados Eléctricos
+# Predicción de Spreads en el Mercado Eléctrico
 
-Este proyecto realiza el preprocesamiento, entrenamiento de modelos y evaluación de estrategias para predecir el spread de precios entre los mercados DAM y RTM en el sector eléctrico.
+Este proyecto consiste en un sistema para predecir y asignar capital diariamente en mercados eléctricos nodales, utilizando aprendizaje supervisado. Emplea modelos de regresión XGBoost con hiperparámetros optimizados mediante Optuna, utilizando precios horarios de los mercados DAM y RTM.
+
+El objetivo es maximizar el retorno económico diario, cumpliendo restricciones como presupuesto fijo, diversificación mínima de nodos, disponibilidad rezagada de datos (dos días) y manejo adecuado de datos incompletos. El desempeño se evalúa mediante validación tipo walk-forward.
+
+El proyecto incluye:
+
+- Preprocesamiento y limpieza del conjunto de datos original.
+- Construcción de variables predictivas internas y externas.
+- Entrenamiento individual de modelos para cada combinación nodo-hora-tipo de transacción.
+- Simulación diaria para decidir asignaciones de capital y evaluar métricas como ROI, drawdown y Sharpe ratio.
 
 ## Estructura del Proyecto
 
@@ -71,3 +80,6 @@ Resultados, métricas y gráficos se guardarán en la carpeta `logs/`.
 
 ---
 
+## Autor
+
+Este proyecto fue desarrollado como parte de una solución para predicción de spreads de precios en mercados eléctricos.
