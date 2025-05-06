@@ -76,10 +76,17 @@ Resultados, métricas y gráficos se guardarán en la carpeta `logs/`.
 ## Notas
 
 - Los scripts generan automáticamente las carpetas necesarias (`logs`, `modelos_guardados`) si no existen.
-
+- Se utilizan técnicas de imputación, rolling windows y validación temporal.
 
 ---
 
 ## Autor
 
 Este proyecto fue desarrollado como parte de una solución para predicción de spreads de precios en mercados eléctricos.
+
+
+---
+
+## Scripts Adicionales
+
+En la subcarpeta `VolatilityPredictionModel` se encuentra el archivo `VolatilityPredictionModel.py`. Este script no forma parte del flujo principal del sistema, sino que corresponde a una recomendación de mejora para incluir modelos que predicen la volatilidad del spread como medida adicional de riesgo.
