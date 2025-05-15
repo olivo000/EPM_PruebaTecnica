@@ -1,8 +1,6 @@
-
 import os, pandas as pd, numpy as np, joblib, matplotlib.pyplot as plt
 from datetime import timedelta
 from xgboost import XGBRegressor
-from utils_features import make_features
 import time
 from collections import defaultdict
 
@@ -12,9 +10,10 @@ RANDOM_STATE        = 42
 MAX_WERR            = 1.0
 
 CAPITAL_POR_NODO    = 5_000
-PESOS_ERR           = np.array([0.5, 0.3, 0.2])
+PESOS_ERR           = np.array([0.2, 0.3, 0.5])
 
 MIN_EXPECTED_PROFIT = 100
+MW_MAXIMO           = 5000
 
 CSV_PATH = "dataset_clean.csv"
 os.makedirs("logs", exist_ok=True)
@@ -28,14 +27,45 @@ CAPITAL_POR_NODO    = CAPITAL_TOTAL_DIA // TOP_N_SPREADS
 
 asignaciones_all = []                 
 
-# ─── Carga base ─────────────────────────────────────────────────
+
+
+def make_features(df_hist, pivot_hist, external_features, valid_mask=None):
+    df = df_hist.copy()
+    for lag, node, h in external_features:
+        col = f"spread_lag{lag}_{node}_h{h}"
+        if (node, h) in pivot_hist.columns:
+            df[col] = pivot_hist[(node, h)].shift(lag)
+    df["spread_std_3"] = df["spread"].rolling(3).std().shift(2)
+    df["spread_std_7"] = df["spread"].rolling(7).std().shift(2)
+    df["spread_absdiff_lag2"] = (df["spread"].shift(2) - df["spread"].shift(3)).abs()
+    df["shock_flag"] = (df["spread_absdiff_lag2"] > 10).astype(int)
+    df["spread_ma_7"] = df["spread"].rolling(7).mean().shift(2)
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    if valid_mask is None:
+        valid_mask = df.notna().mean() >= NA_TOL
+    df = df.loc[:, valid_mask].select_dtypes(include="number")
+    if "DateTime" in df_hist:
+        df["DateTime"] = df_hist["DateTime"]
+    if "spread" in df_hist:
+        df["spread"] = df_hist["spread"]
+    return df, valid_mask
+
+def get_dam_hist(raw, current_day, hour, offset=2):
+    fecha_hist = current_day - timedelta(days=offset)
+    fila = raw[(raw["DateTime"].dt.normalize() == fecha_hist) & (raw["Hour"] == hour)]
+    if not fila.empty:
+        return fila["DAMSPP"].values[0]
+    else:
+        return np.nan
+
+
+
 df_all = pd.read_csv(CSV_PATH)
 df_all["DateTime"] = pd.to_datetime(df_all["DateTime"])
 df_all["Hour"] = pd.to_numeric(df_all["Hour"], errors="coerce").astype(int)
 df_all["TransactionType"] = df_all["TransactionType"].str.upper().str.strip()
-df_all["NodeType"] = df_all["AssetID"] + "_" + df_all["TransactionType"]
-df_all["DateTime_hr"] = df_all["DateTime"].dt.normalize() + pd.to_timedelta(df_all["Hour"], "h")
 df_all = df_all[df_all["TransactionType"].isin(["BID", "OFFER"])]
+
 
 df_all["spread"] = np.where(
     df_all["TransactionType"] == "BID",
@@ -46,7 +76,7 @@ df_all["spread"] = np.where(
 df_all["NodeType"] = df_all["AssetID"] + "_" + df_all["TransactionType"]
 df_all["DateTime_hr"] = df_all["DateTime"].dt.normalize() + pd.to_timedelta(df_all["Hour"], unit="h")
 
-pivot_all = df_all.pivot_table(index="DateTime_hr", columns=["NodeType", "Hour"], values="spread").sort_index()
+pivot_all = df_all.pivot_table(index="DateTime", columns=["AssetID", "Hour"], values="spread").sort_index()
 
 
 modelos_info = []
@@ -94,7 +124,7 @@ while current_day <= test_end:
 
     for model in modelos_info:
         raw = model["raw"]
-        raw["DateTime_hr"] = raw["DateTime"].dt.normalize() + pd.to_timedelta(raw["Hour"], unit="h")
+
         feat_cols = model["features"]
         external_features = model["external_features"]
         valid_mask = model["valid_mask"]
@@ -102,7 +132,8 @@ while current_day <= test_end:
 
         hist_cut = current_day - timedelta(days=D_LAG)
         end_hist = hist_cut
-        hist_df = raw[raw["DateTime_hr"] <= hist_cut]
+
+        hist_df = raw[raw["DateTime"] <= hist_cut]
         pivot_cut = pivot_all.loc[:hist_cut]
 
         feat_hist, _ = make_features(hist_df, pivot_cut, external_features, valid_mask)
@@ -121,24 +152,26 @@ while current_day <= test_end:
             continue
         pivot_day = pivot_all.loc[:end_hist]
         aux_df = pd.concat([hist_df, day_row])
+
         feat_day, _ = make_features(aux_df, pivot_cut, external_features, valid_mask)
-        feat_day = feat_day.dropna(subset=feat_cols + ["spread"])
-        if feat_day.empty:
+        X_day = feat_day.loc[feat_day["DateTime"].dt.normalize() == current_day, feat_cols]
+        if X_day.empty or X_day.isna().any().any():
             continue
 
-        y_pred = model_xgb.predict(feat_day[feat_cols])[0]
-        y_real = feat_day["spread"].values[0]
+        y_pred = model_xgb.predict(X_day)[0]
+
+        y_real = day_row["spread"].values[0]
 
         model["dates"].append(current_day)
         model["preds"].append(y_pred)
         model["actuals"].append(y_real)
 
         errors_hist = np.abs(np.array(model["preds"]) - np.array(model["actuals"]))
-        if len(errors_hist) >= 4:
-            w_err = np.dot(PESOS_ERR, errors_hist[-4:-1]) / PESOS_ERR.sum()
-            err_prevday = errors_hist[-1]
+        if len(errors_hist) >= 5:
+            w_err = np.dot(PESOS_ERR, errors_hist[-5:-2]) / PESOS_ERR.sum()
+
         else:
-            w_err, err_prevday = np.inf, np.inf
+            w_err = np.inf
 
         dia_preds.append({
             "asset_id": model["asset_id"],
@@ -148,13 +181,12 @@ while current_day <= test_end:
             "y_real": y_real,
             "dam": day_row["DAMSPP"].values[0],
             "rtm": day_row["RTMSPP"].values[0],
-            "w_err": w_err,
-            "err_prev": err_prevday
+            "w_err": w_err
         })
 
         print(f"[Predicción] {model['asset_id']} h{model['hour']} ({model['tx_type']}): "
               f"Pred = {y_pred:.2f}, Real = {y_real:.2f}, "
-              f"w_err = {w_err:.2f}, err_prev = {err_prevday:.2f}, "
+              f"w_err = {w_err:.2f},"
               f"DAM = {day_row['DAMSPP'].values[0]:.2f}, RTM = {day_row['RTMSPP'].values[0]:.2f}")
 
     nodo_preds = defaultdict(list)
@@ -171,26 +203,25 @@ while current_day <= test_end:
     nodos_utilizados = set()
     nodos_hora_utilizados = set()
 
+
     for d in sorted(mejores_por_nodo, key=lambda x: x["y_pred"] / (x["w_err"] + 1e-6), reverse=True):
         if (d["asset_id"], d["hour"]) in nodos_hora_utilizados:
             continue
         if d["y_pred"] <= 0 or not np.isfinite(d["w_err"]) or d["w_err"] > MAX_WERR:
             continue
 
-        precio_compra = d["dam"] if d["tipo"] == "BID" else d["rtm"]
-        precio_venta = d["rtm"] if d["tipo"] == "BID" else d["dam"]
-        mw = int(CAPITAL_POR_NODO / precio_compra) if precio_compra > 0 else 0
+        precio_compra_hist = get_dam_hist(raw, current_day, d["hour"], offset=2)
+        if np.isnan(precio_compra_hist) or precio_compra_hist <= 0:
+            continue
+        mw = int(CAPITAL_POR_NODO / precio_compra_hist)
         if mw == 0:
             continue
-
-        retorno_esperado_real = (precio_venta - precio_compra) * mw
-        if retorno_esperado_real < MIN_EXPECTED_PROFIT:
+        if mw > MW_MAXIMO:
             continue
-
-        if np.sign(d["y_real"]) != np.sign(d["y_pred"]):
+        retorno_esperado = d["y_pred"] * mw
+        if retorno_esperado < MIN_EXPECTED_PROFIT:
             continue
-
-        costo_tx = precio_compra * mw
+        costo_tx = precio_compra_hist * mw
         if (capital_usado + costo_tx) > CAPITAL_TOTAL_DIA:
             continue
 
@@ -212,28 +243,25 @@ while current_day <= test_end:
 
     rentables = diversificados.copy()
 
+
     for d in restantes:
         if (d["asset_id"], d["hour"]) in nodos_hora_utilizados:
             continue
         if d["y_pred"] <= 0 or not np.isfinite(d["w_err"]) or d["w_err"] > MAX_WERR:
             continue
 
-        precio_compra = d["dam"] if d["tipo"] == "BID" else d["rtm"]
-        precio_venta = d["rtm"] if d["tipo"] == "BID" else d["dam"]
-        if precio_compra <= 0:
+        precio_compra_hist = get_dam_hist(raw, current_day, d["hour"], offset=2)
+        if np.isnan(precio_compra_hist) or precio_compra_hist <= 0:
             continue
-        mw = int(CAPITAL_POR_NODO / precio_compra)
+        mw = int(CAPITAL_POR_NODO / precio_compra_hist)
         if mw == 0:
             continue
-
-        retorno_esperado_real = (precio_venta - precio_compra) * mw
-        if retorno_esperado_real < MIN_EXPECTED_PROFIT:
+        if mw > MW_MAXIMO:
+            continue            
+        retorno_esperado = d["y_pred"] * mw
+        if retorno_esperado < MIN_EXPECTED_PROFIT:
             continue
-
-        if np.sign(d["y_real"]) != np.sign(d["y_pred"]):
-            continue
-
-        costo_tx = precio_compra * mw
+        costo_tx = precio_compra_hist * mw
         if (capital_usado + costo_tx) > CAPITAL_TOTAL_DIA:
             continue
 
@@ -247,6 +275,7 @@ while current_day <= test_end:
     if len(nodos_utilizados) < MIN_NODOS_DIA:
         print(f" Día {current_day.date()}: solo se asignaron {len(nodos_utilizados)} nodos únicos.")
 
+
     if len(nodos_utilizados) < MIN_NODOS_DIA:
         print(f" Día {current_day.date()}: forzando inclusión de más nodos para cumplir mínimo de {MIN_NODOS_DIA}")
         candidatos_extra = [
@@ -259,14 +288,15 @@ while current_day <= test_end:
         candidatos_extra = sorted(candidatos_extra, key=lambda x: x["y_pred"] / (x["w_err"] + 1e-6), reverse=True)
 
         for d in candidatos_extra:
-            precio_compra = d["dam"] if d["tipo"] == "BID" else d["rtm"]
-            precio_venta = d["rtm"] if d["tipo"] == "BID" else d["dam"]
-            if precio_compra <= 0:
+            precio_compra_hist = get_dam_hist(raw, current_day, d["hour"], offset=2)
+            if np.isnan(precio_compra_hist) or precio_compra_hist <= 0:
                 continue
-            mw = int(CAPITAL_POR_NODO / precio_compra)
+            mw = int(CAPITAL_POR_NODO / precio_compra_hist)
             if mw == 0:
                 continue
-            costo_tx = mw * precio_compra
+            if mw > MW_MAXIMO:
+                continue                
+            costo_tx = mw * precio_compra_hist
             if (capital_usado + costo_tx) > CAPITAL_TOTAL_DIA:
                 continue
 
@@ -314,7 +344,8 @@ while current_day <= test_end:
     print(f"Tiempo transcurrido: {time.time() - start:.2f} segundos")
 
     current_day += timedelta(days=1)
-# ─── Guardar resultados y métricas adicionales ──────────────────────────
+
+
 df_retornos = pd.DataFrame(resultados_diarios)
 df_retornos["retorno_acumulado"] = df_retornos["retorno_total"].cumsum()
 df_retornos["RoI"] = df_retornos["retorno_total"] / (CAPITAL_POR_NODO * TOP_N_SPREADS)
