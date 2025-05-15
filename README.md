@@ -76,7 +76,6 @@ Resultados, métricas y gráficos se guardarán en la carpeta `logs/`.
 ## Notas
 
 - Los scripts generan automáticamente las carpetas necesarias (`logs`, `modelos_guardados`) si no existen.
-- Se utilizan técnicas de imputación, rolling windows y validación temporal.
 
 ---
 
